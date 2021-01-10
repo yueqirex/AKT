@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from enum import IntEnum
 import numpy as np
 
+# use gpu as computing device when available or cpu otherwise.
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -18,7 +19,7 @@ class Dim(IntEnum):
 
 
 class AKT(nn.Module):
-    def __init__(self, n_question, n_pid, d_model, n_blocks,
+    def __init__(self, n_question, n_pid, d_model, n_blocks, # this d_model is defined else where and used here.
                  kq_same, dropout, model_type, final_fc_dim=512, n_heads=8, d_ff=2048,  l2=1e-5, separate_qa=False):
         super().__init__()
         """
@@ -37,7 +38,7 @@ class AKT(nn.Module):
         self.separate_qa = separate_qa
         embed_l = d_model
         if self.n_pid > 0:
-            self.difficult_param = nn.Embedding(self.n_pid+1, 1)
+            self.difficult_param = nn.Embedding(self.n_pid+1, 1) # nn.embedding(vocab_size, d_embed)
             self.q_embed_diff = nn.Embedding(self.n_question+1, embed_l)
             self.qa_embed_diff = nn.Embedding(2 * self.n_question + 1, embed_l)
         # n_question+1 ,d_model
