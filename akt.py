@@ -37,22 +37,24 @@ class AKT(nn.Module):
         self.model_type = model_type
         self.separate_qa = separate_qa
         embed_l = d_model
-        if self.n_pid > 0:
+        if self.n_pid > 0: # if the number of problems > 0
+            # 1. difficult embedding, 2. d_ct, 3.  # f_(ct,rt) or #h_rt
             self.difficult_param = nn.Embedding(self.n_pid+1, 1) # nn.embedding(vocab_size, d_embed)
             self.q_embed_diff = nn.Embedding(self.n_question+1, embed_l)
             self.qa_embed_diff = nn.Embedding(2 * self.n_question + 1, embed_l)
         # n_question+1 ,d_model
+        # if self.n_pid <= 0, then just do another kind of problem embedding (q_embed).
         self.q_embed = nn.Embedding(self.n_question+1, embed_l)
         if self.separate_qa:
-            self.qa_embed = nn.Embedding(2*self.n_question+1, embed_l)
+            self.qa_embed = nn.Embedding(2*self.n_question+1, embed_l) # looks like a combined embedding
         else:
-            self.qa_embed = nn.Embedding(2, embed_l)
+            self.qa_embed = nn.Embedding(2, embed_l) # looks like pure 0,1 response embedding
         # Architecture Object. It contains stack of attention block
         self.model = Architecture(n_question=n_question, n_blocks=n_blocks, n_heads=n_heads, dropout=dropout,
                                     d_model=d_model, d_feature=d_model / n_heads, d_ff=d_ff,  kq_same=self.kq_same, model_type=self.model_type)
-
+        # This is a element-wise feed forward layer: (Linear + ReLU + drop_out) * 2 + Linear
         self.out = nn.Sequential(
-            nn.Linear(d_model + embed_l,
+            nn.Linear(d_model + embed_l, # d_model + d_embedding_layer -> d_fc [ReLU]
                       final_fc_dim), nn.ReLU(), nn.Dropout(self.dropout),
             nn.Linear(final_fc_dim, 256), nn.ReLU(
             ), nn.Dropout(self.dropout),
