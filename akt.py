@@ -37,16 +37,23 @@ class AKT(nn.Module):
         self.model_type = model_type
         self.separate_qa = separate_qa
         embed_l = d_model
-        if self.n_pid > 0: # if the number of problems > 0
+        # What is the difference between n_pid and n_question?
             # 1. difficult embedding, 2. d_ct, 3.  # f_(ct,rt) or #h_rt
-            self.difficult_param = nn.Embedding(self.n_pid+1, 1) # nn.embedding(vocab_size, d_embed)
+            '''
+            0. cct ∈ RD is the embedding of the concept this question covers
+            1. difficult embedding: the difficulty parameter is a scalar that controls how far this question deviates from the concept it covers
+            2. dct ∈ RD is a vector that summarizes the variation in questions covering this concept
+            3. e(ct ,rt) ∈ RD is concept-response embedding and f(ct ,rt) ∈ RD are variation vectors.
+            '''
+        if self.n_pid > 0: # if the n_pid > 0
+            self.difficult_param = nn.Embedding(self.n_pid+1, 1) # nn.embedding(vocab_size, d_embed), the difficulty parameter is a scalar
             self.q_embed_diff = nn.Embedding(self.n_question+1, embed_l)
             self.qa_embed_diff = nn.Embedding(2 * self.n_question + 1, embed_l)
         # n_question+1 ,d_model
-        # if self.n_pid <= 0, then just do another kind of problem embedding (q_embed).
+        # if self.n_pid <= 0, then use n_question.
         self.q_embed = nn.Embedding(self.n_question+1, embed_l)
         if self.separate_qa:
-            self.qa_embed = nn.Embedding(2*self.n_question+1, embed_l) # looks like a combined embedding
+            self.qa_embed = nn.Embedding(2*self.n_question+1, embed_l) # note: 2*self.n_question+1 ?
         else:
             self.qa_embed = nn.Embedding(2, embed_l) # looks like pure 0,1 response embedding
         # Architecture Object. It contains stack of attention block
@@ -66,31 +73,34 @@ class AKT(nn.Module):
         for p in self.parameters():
             if p.size(0) == self.n_pid+1 and self.n_pid > 0:
                 torch.nn.init.constant_(p, 0.)
-
-    def forward(self, q_data, qa_data, target, pid_data=None):
+    
+    # Data flow function:
+    def forward(self, q_data, qa_data, target, pid_data=None): # pid_data: item difficulty info
         # Batch First
-        q_embed_data = self.q_embed(q_data)  # BS, seqlen,  d_model# c_ct
+        q_embed_data = self.q_embed(q_data)  # BS, seqlen, d_model # c_ct (concept embedding) = nn.Embedding(self.n_question+1, embed_l)
+        # separate qa embedding: self.qa_embed = nn.Embedding(2*self.n_question+1, embed_l) # note: 2*self.n_question+1 ?
         if self.separate_qa:
             # BS, seqlen, d_model #f_(ct,rt)
             qa_embed_data = self.qa_embed(qa_data)
+        # combined qa embedding: self.qa_embed = nn.Embedding(2, embed_l)
         else:
-            qa_data = (qa_data-q_data)//self.n_question  # rt
-            # BS, seqlen, d_model # c_ct+ g_rt =e_(ct,rt)
-            qa_embed_data = self.qa_embed(qa_data)+q_embed_data
+            qa_data = (qa_data-q_data)//self.n_question  # r_t (response embedding) what does (qa_data-q_data) mean?
+            # BS, seqlen, d_model # c_ct + g_rt = e_(ct,rt)
+            qa_embed_data = self.qa_embed(qa_data) + q_embed_data
 
         if self.n_pid > 0:
-            q_embed_diff_data = self.q_embed_diff(q_data)  # d_ct
-            pid_embed_data = self.difficult_param(pid_data)  # uq
+            q_embed_diff_data = self.q_embed_diff(q_data)  # d_ct self.q_embed_diff = nn.Embedding(self.n_question+1, embed_l)
+            pid_embed_data = self.difficult_param(pid_data)  # u_qt self.difficult_param = nn.Embedding(self.n_pid+1, 1)
             q_embed_data = q_embed_data + pid_embed_data * \
                 q_embed_diff_data  # uq *d_ct + c_ct
             qa_embed_diff_data = self.qa_embed_diff(
-                qa_data)  # f_(ct,rt) or #h_rt
+                qa_data)  # f_(ct,rt) or #h_rt self.qa_embed_diff = nn.Embedding(2 * self.n_question + 1, embed_l)
             if self.separate_qa:
                 qa_embed_data = qa_embed_data + pid_embed_data * \
                     qa_embed_diff_data  # uq* f_(ct,rt) + e_(ct,rt)
             else:
                 qa_embed_data = qa_embed_data + pid_embed_data * \
-                    (qa_embed_diff_data+q_embed_diff_data)  # + uq *(h_rt+d_ct)
+                    (qa_embed_diff_data + q_embed_diff_data)  # + uq *(h_rt+d_ct)
             c_reg_loss = (pid_embed_data ** 2.).sum() * self.l2
         else:
             c_reg_loss = 0.
